@@ -84,7 +84,12 @@ class HopDataGrid(QTableWidget):
             # Format latency values
             avg = "-" if hop['avg'] == 0 else f"{hop['avg']:.1f}"
             min_val = "-" if hop['min'] == float('inf') else f"{hop['min']:.1f}"
-            cur = "-" if hop['current'] == 0 else f"{hop['current']:.1f}"
+            
+            # Show error message for "No route to host"
+            if hop.get('error_type') == "no_route":
+                cur = "No route"
+            else:
+                cur = "-" if hop['current'] == 0 else f"{hop['current']:.1f}"
             
             self.set_cell_value(row, 4, avg)
             self.set_cell_value(row, 5, min_val)
@@ -98,8 +103,8 @@ class HopDataGrid(QTableWidget):
             jitter = f"{hop['jitter']:.1f}"
             self.set_cell_value(row, 8, jitter)
             
-            # Apply color based on current latency
-            self.color_row(row, hop['current'], hop['loss'])
+            # Apply color based on current latency, loss, and error type
+            self.color_row(row, hop['current'], hop['loss'], hop.get('error_type'))
         
         # Unblock signals
         self.blockSignals(False)
@@ -114,20 +119,24 @@ class HopDataGrid(QTableWidget):
         else:
             item.setText(value)
     
-    def color_row(self, row, latency, loss):
+    def color_row(self, row, latency, loss, error_type=None):
         """
-        Apply color to a row based on latency and loss values
+        Apply color to a row based on latency, loss values, and error type
         
         Args:
             row: Row index
             latency: Current latency value
             loss: Packet loss percentage
+            error_type: Type of error (if any)
         """
-        if loss > 20:
-            # High packet loss: red
+        if error_type == "no_route":
+            # No route to host: bright red
+            color = QColor(255, 0, 0)  # Bright red
+        elif loss > 20:
+            # High packet loss: light red
             color = QColor(255, 180, 180)
         elif latency > 100:
-            # High latency: red
+            # High latency: light red
             color = QColor(255, 180, 180)
         elif latency > 50:
             # Medium latency: yellow

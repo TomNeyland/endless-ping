@@ -2,20 +2,101 @@
 # -*- coding: utf-8 -*-
 
 """
-Cross-platform ICMP ping implementation for network monitoring.
+Cross-platform ICMP ping implementation using Python's socket module for network monitoring.
 """
 
-import subprocess
-import platform
-import re
 import socket
+import struct
+import select
 import time
+import random
 import os
+import platform
 from typing import Dict, Any, Optional, Tuple, List
+
+class ICMPSocket:
+    """Helper class for creating and sending ICMP packets."""
+    
+    ICMP_ECHO_REQUEST = 8  # ICMP type code for echo request
+    
+    def __init__(self, timeout: int):
+        """Initialize ICMP socket."""
+        self.timeout = timeout
+        if platform.system().lower() == "windows":
+            # On Windows, we need to use ICMP socket
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+        else:
+            # On Unix, we use raw socket (requires root privileges)
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+            
+        self.socket.settimeout(timeout)
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.socket.close()
+    
+    def checksum(self, data: bytes) -> int:
+        """Calculate the checksum of a packet."""
+        if len(data) % 2:
+            data += b'\x00'
+        
+        s = sum(struct.unpack('!{}H'.format(len(data) // 2), data))
+        s = (s >> 16) + (s & 0xffff)
+        s += s >> 16
+        return ~s & 0xffff
+    
+    def create_packet(self, id: int = None) -> bytes:
+        """Create an ICMP echo request packet."""
+        # If id is not provided, use a random ID
+        if id is None:
+            id = os.getpid() & 0xFFFF
+            
+        # Header is type (8), code (8), checksum (16), id (16), sequence (16)
+        header = struct.pack('!BBHHH', self.ICMP_ECHO_REQUEST, 0, 0, id, 1)
+        
+        # Create some data for the packet
+        data = b'abcdefghijklmnopqrstuvwxyz'
+        
+        # Calculate the checksum on the data and the header
+        checksum = self.checksum(header + data)
+        
+        # Insert the checksum into the header
+        header = struct.pack('!BBHHH', self.ICMP_ECHO_REQUEST, 0, checksum, id, 1)
+        
+        # Return the complete packet
+        return header + data
+    
+    def send_packet(self, dest_addr: str, packet: bytes) -> Tuple[float, Optional[bytes]]:
+        """Send an ICMP packet and get a response."""
+        start_time = time.time()
+        
+        try:
+            self.socket.sendto(packet, (dest_addr, 1))
+            
+            ready = select.select([self.socket], [], [], self.timeout)
+            if ready[0]:
+                recv_packet, addr = self.socket.recvfrom(1024)
+                return time.time() - start_time, recv_packet
+            else:
+                return time.time() - start_time, None
+        except socket.gaierror:
+            raise socket.gaierror("Name or service not known")
+        except socket.error as e:
+            if "No route to host" in str(e):
+                raise socket.error("No route to host")
+            elif "Permission denied" in str(e):
+                raise PermissionError("Root privileges required for raw socket on Unix systems")
+            else:
+                raise e
+
 
 def ping_host(host: str, timeout: int = 1, count: int = 1) -> Dict[str, Any]:
     """
-    Ping a host and return the result.
+    Ping a host using Python's socket module and return the result.
     
     Args:
         host: The hostname or IP address to ping
@@ -27,85 +108,89 @@ def ping_host(host: str, timeout: int = 1, count: int = 1) -> Dict[str, Any]:
             - success: Whether the ping was successful
             - latency: Round-trip time in milliseconds (if successful)
             - error: Error message (if not successful)
+            - error_type: Type of error (e.g., "timeout", "no_route", "unknown")
     """
     # Default result
     result = {
         'success': False,
         'latency': 0,
-        'error': None
+        'error': None,
+        'error_type': None
     }
     
     try:
-        # Determine the platform-specific ping command
-        os_name = platform.system().lower()
+        # Resolve hostname to IP address
+        try:
+            dest_addr = socket.gethostbyname(host)
+        except socket.gaierror:
+            result['error'] = "Name or service not known"
+            result['error_type'] = "unknown"
+            return result
         
-        if os_name == 'windows':
-            output = _ping_windows(host, timeout, count)
-        elif os_name in ('darwin', 'linux'):
-            output = _ping_unix(host, timeout, count)
-        else:
-            raise OSError(f"Unsupported operating system: {os_name}")
-        
-        # Parse the output
-        latency = _parse_ping_output(output, os_name)
-        
-        if latency is not None:
-            result['success'] = True
-            result['latency'] = latency
-        else:
-            result['error'] = "Could not parse ping output or ping timed out"
+        # Make sure we have permissions to create raw sockets
+        if platform.system().lower() != "windows" and os.geteuid() != 0:
+            result['error'] = "Root privileges required for raw socket on Unix systems"
+            result['error_type'] = "permission"
+            return result
             
+        # Create socket and ping
+        try:
+            with ICMPSocket(timeout) as icmp:
+                packet = icmp.create_packet()
+                
+                latencies = []
+                for i in range(count):
+                    elapsed_time, recv_packet = icmp.send_packet(dest_addr, packet)
+                    
+                    if recv_packet:
+                        latencies.append(elapsed_time * 1000)  # Convert to ms
+                    
+                    # If we're sending multiple pings, add a small delay between them
+                    if i < count - 1:
+                        time.sleep(0.1)
+                
+                if latencies:
+                    # Calculate average latency
+                    avg_latency = sum(latencies) / len(latencies)
+                    result['success'] = True
+                    result['latency'] = avg_latency
+                else:
+                    result['error'] = "Request timed out"
+                    result['error_type'] = "timeout"
+        
+        except PermissionError as e:
+            result['error'] = str(e)
+            result['error_type'] = "permission"
+        
+        except socket.error as e:
+            result['error'] = str(e)
+            
+            if "No route to host" in str(e):
+                result['error_type'] = "no_route"
+            elif "Permission denied" in str(e):
+                result['error_type'] = "permission"
+            else:
+                result['error_type'] = "unknown"
+                
     except Exception as e:
         result['error'] = str(e)
+        
+        if "No route to host" in str(e):
+            result['error_type'] = "no_route"
+        elif "timed out" in str(e).lower():
+            result['error_type'] = "timeout"
+        else:
+            result['error_type'] = "unknown"
     
     return result
 
-def _ping_windows(host: str, timeout: int, count: int) -> str:
-    """Run ping command on Windows"""
-    cmd = ['ping', '-n', str(count), '-w', str(timeout * 1000), host]
-    try:
-        output = subprocess.check_output(cmd, universal_newlines=True, timeout=timeout+1)
-        return output
-    except subprocess.TimeoutExpired:
-        return "Request timed out."
-    except subprocess.CalledProcessError:
-        return "Ping request could not find host."
 
-def _ping_unix(host: str, timeout: int, count: int) -> str:
-    """Run ping command on Unix-like systems (Linux/macOS)"""
-    cmd = ['ping', '-c', str(count), host]
-    try:
-        output = subprocess.check_output(cmd, universal_newlines=True, timeout=timeout+1)
-        return output
-    except subprocess.TimeoutExpired:
-        return "Request timed out."
-    except subprocess.CalledProcessError:
-        return "Ping request could not find host."
-
-def _parse_ping_output(output: str, os_name: str) -> Optional[float]:
-    """
-    Parse the ping command output to extract latency.
+# Example usage
+if __name__ == "__main__":
+    # Try to ping Google's DNS server
+    result = ping_host("8.8.8.8", timeout=2, count=3)
+    print(f"Ping result: {result}")
     
-    Args:
-        output: Output from the ping command
-        os_name: Operating system name
-    
-    Returns:
-        Latency in milliseconds or None if parsing failed
-    """
-    if "Request timed out" in output or "100% packet loss" in output:
-        return None
-    
-    # Windows format: "Reply from 8.8.8.8: bytes=32 time=44ms TTL=113"
-    if os_name == 'windows':
-        match = re.search(r'time=(\d+)ms', output)
-        if match:
-            return float(match.group(1))
-    
-    # Unix format: "64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=11.994 ms"
-    else:
-        match = re.search(r'time=(\d+\.\d+|\d+) ms', output)
-        if match:
-            return float(match.group(1))
-    
-    return None
+    # Try to ping a non-existent host
+    result = ping_host("non.existent.host", timeout=2)
+    print(f"Failed ping result: {result}")

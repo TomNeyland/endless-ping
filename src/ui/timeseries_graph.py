@@ -25,6 +25,8 @@ class TimeSeriesGraph(pg.PlotWidget):
         self.timestamps = deque(maxlen=self.max_points)
         self.hop_lines = {}  # Dict of {hop_num: plot_data_item}
         self.hop_data = {}   # Dict of {hop_num: deque of latency values}
+        self.hop_errors = {} # Dict of {hop_num: deque of error_type values}
+        self.error_bands = []  # List of error band items
         
         # Reference time (first data point)
         self.reference_time = None
@@ -100,19 +102,26 @@ class TimeSeriesGraph(pg.PlotWidget):
         for hop in hop_data:
             hop_num = hop['hop']
             latency = hop['current']
+            error_type = hop.get('error_type')
             
             # Initialize data storage for this hop if needed
             if hop_num not in self.hop_data:
                 self.hop_data[hop_num] = deque(maxlen=self.max_points)
+                self.hop_errors[hop_num] = deque(maxlen=self.max_points)
+                
                 # Fill with NaN for previous timestamps
                 for _ in range(len(self.timestamps) - 1):
                     self.hop_data[hop_num].append(float('nan'))
+                    self.hop_errors[hop_num].append(None)
             
             # Add latency value (or NaN for timeouts)
             if latency > 0:
                 self.hop_data[hop_num].append(latency)
             else:
                 self.hop_data[hop_num].append(float('nan'))
+            
+            # Add error type
+            self.hop_errors[hop_num].append(error_type)
         
         # Ensure all hops have the same number of data points
         for hop_num in self.hop_data:
@@ -120,6 +129,7 @@ class TimeSeriesGraph(pg.PlotWidget):
                 # Add NaN for missing data points
                 while len(self.hop_data[hop_num]) < len(self.timestamps):
                     self.hop_data[hop_num].appendleft(float('nan'))
+                    self.hop_errors[hop_num].appendleft(None)
     
     def refresh_plot(self):
         """Refresh the plot with current data"""
@@ -140,6 +150,11 @@ class TimeSeriesGraph(pg.PlotWidget):
             '#ff4080',  # Pink
         ]
         
+        # Clean up old error bands (remove all existing bands)
+        for band in self.error_bands:
+            self.plotItem.removeItem(band)
+        self.error_bands = []
+        
         # Update each hop line
         for i, (hop_num, latency_data) in enumerate(sorted(self.hop_data.items())):
             # Convert data to numpy arrays
@@ -159,6 +174,58 @@ class TimeSeriesGraph(pg.PlotWidget):
             else:
                 # Update existing line
                 self.hop_lines[hop_num].setData(x, y)
+                
+            # Draw error bands for this hop
+            error_data = list(self.hop_errors[hop_num])
+            
+            # Find contiguous regions with 'no_route' errors
+            if 'no_route' in error_data:
+                # Get current view range for y-axis
+                y_min, y_max = self.plotItem.viewRange()[1]
+                
+                # Find blocks of consecutive no_route errors
+                in_error_block = False
+                start_idx = None
+                
+                for i, error in enumerate(error_data):
+                    if error == 'no_route' and not in_error_block:
+                        # Start of error block
+                        start_idx = i
+                        in_error_block = True
+                    elif error != 'no_route' and in_error_block:
+                        # End of error block
+                        end_idx = i
+                        
+                        # Create band for this block
+                        if start_idx < len(x) and start_idx >= 0:
+                            x_start = x[start_idx]
+                            x_end = x[end_idx] if end_idx < len(x) else x[-1] + 1.0
+                            
+                            # Create a very visible band
+                            band = pg.LinearRegionItem(
+                                [x_start, x_end],
+                                movable=False,
+                                brush=pg.mkBrush(255, 0, 0, 100)  # Semi-transparent red
+                            )
+                            band.setZValue(-1)  # Behind data lines but above background
+                            self.plotItem.addItem(band)
+                            self.error_bands.append(band)
+                        
+                        in_error_block = False
+                
+                # Check if we ended in an error state
+                if in_error_block and start_idx is not None and start_idx < len(x):
+                    x_start = x[start_idx]
+                    x_end = x[-1] + 1.0  # Extend to current time
+                    
+                    band = pg.LinearRegionItem(
+                        [x_start, x_end],
+                        movable=False,
+                        brush=pg.mkBrush(255, 0, 0, 100)  # Semi-transparent red
+                    )
+                    band.setZValue(-1)
+                    self.plotItem.addItem(band)
+                    self.error_bands.append(band)
         
         # Auto-scale Y axis if needed
         max_latency = 150  # Default

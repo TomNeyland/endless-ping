@@ -15,6 +15,7 @@ from utils.ping import ping_host
 from utils.traceroute import perform_traceroute
 from utils.ip_lookup import resolve_hostname
 from core.statistics import calculate_statistics
+from concurrent.futures import ThreadPoolExecutor
 
 class NetworkMonitor:
     """Manages network monitoring operations and data collection"""
@@ -117,17 +118,18 @@ class NetworkMonitor:
                 'avg': 0,
                 'loss': 0,
                 'jitter': 0,
+                'error_type': None,
                 'timestamps': []
             }
             
             self.current_hops.append(hop_entry)
             self.history[hop_num] = deque(maxlen=self.history_max_points)
-    
+
     def _ping_all_hops(self):
-        """Ping all hops in the current path"""
+        """Ping all hops in the current path in parallel"""
         timestamp = datetime.now()
         
-        for hop in self.current_hops:
+        def ping_and_process(hop):
             # Ping the hop
             result = ping_host(hop['ip'])
             
@@ -139,20 +141,41 @@ class NetworkMonitor:
                 hop['current'] = latency
                 hop['min'] = min(hop['min'], latency)
                 hop['max'] = max(hop['max'], latency)
+                hop['error_type'] = None
                 
                 # Add to history
                 self.history[hop['hop']].append({
                     'timestamp': timestamp,
                     'latency': latency,
-                    'success': True
+                    'success': True,
+                    'error_type': None
                 })
             else:
-                # Record timeout
+                # Record error
+                hop['current'] = 0  # No latency for errors
+                hop['error_type'] = result.get('error_type', 'unknown')
+                
+                # Add to history
                 self.history[hop['hop']].append({
                     'timestamp': timestamp,
                     'latency': None,
-                    'success': False
+                    'success': False,
+                    'error_type': result.get('error_type', 'unknown')
                 })
+            
+            return hop
+        
+        # Use a thread pool to ping all hops in parallel
+        with ThreadPoolExecutor(max_workers=min(32, len(self.current_hops))) as executor:
+            # Submit all ping tasks and process results as they complete
+            future_to_hop = {executor.submit(ping_and_process, hop): hop for hop in self.current_hops}
+            
+            # Wait for all tasks to complete (optional, depending on your needs)
+            for future in future_to_hop:
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f'Hop generated an exception: {exc}')
     
     def _update_statistics(self):
         """Update statistics for all hops"""
