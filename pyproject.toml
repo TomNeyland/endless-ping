@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "endless-ping"
+version = "0.1.0"
+description = ""
+authors = ["Thomas Neyland <tcneyland@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyqt6 = "^6.8.1"
+pyqtgraph = "^0.13.7"
+numpy = "^2.2.4"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
