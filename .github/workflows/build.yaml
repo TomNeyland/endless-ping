@@ -37,7 +37,7 @@ jobs:
         python-version: '3.11'
 
     - name: Install Poetry
-      uses: snok/install-poetry@v1
+      uses: snok/install-poetry@v1.4.1
       with:
         version: 1.5.1
         virtualenvs-create: true
@@ -45,7 +45,7 @@ jobs:
 
     - name: Add Poetry to PATH on Windows
       if: runner.os == 'Windows'
-      run: echo "$env:POETRY_HOME\bin" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+      run: echo "$env:USERPROFILE\AppData\Roaming\Python\Scripts" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
       shell: pwsh
 
     - name: Load cached venv
