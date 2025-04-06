@@ -8,6 +8,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Add permissions to allow creating tags and releases
+permissions:
+  contents: write  # This gives write permission to repository contents (including tags)
+
 jobs:
   auto-tag:
     name: Auto Tag
