@@ -53,10 +53,13 @@ jobs:
     - name: Install dependencies
       if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
       run: poetry install --no-interaction --no-root
+      shell: bash
     - name: Install project
       run: poetry install --no-interaction
+      shell: bash
     - name: Install PyInstaller
       run: poetry add --group dev "pyinstaller>=6.12.0,<7.0.0" --python ">=3.11,<3.14"
+      shell: bash
     - name: Create version file
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
@@ -73,12 +76,15 @@ jobs:
     - name: Build with PyInstaller (Windows)
       if: matrix.os == 'windows-latest'
       run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      shell: bash
     - name: Build with PyInstaller (macOS)
       if: matrix.os == 'macos-latest'
       run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      shell: bash
     - name: Build with PyInstaller (Linux)
       if: matrix.os == 'ubuntu-latest'
       run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      shell: bash
     - name: Generate artifact name
       id: artifact_name
       run: |
