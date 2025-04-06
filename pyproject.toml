@@ -12,7 +12,6 @@ pyqtgraph = "^0.13.7"
 numpy = "^2.2.4"
 qdarkstyle = "^3.2.3"
 
-
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
