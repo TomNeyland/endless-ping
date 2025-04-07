@@ -3,7 +3,7 @@
 
 """
 Ultimate Endless Ping Network Monitoring Tool
-A PingPlotter-style desktop application to monitor and visualize network latency.
+A desktop application to monitor and visualize network latency.
 """
 
 import sys

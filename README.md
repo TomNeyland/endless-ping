@@ -1,6 +1,6 @@
 # Endless Ping - Network Monitoring Tool
 
-A cross-platform, Python-based network monitoring application similar to PingPlotter for visualizing network latency, packet loss, and route information.
+A cross-platform, Python-based network monitoring application for visualizing network latency, packet loss, and route information.
 
 ![Network Monitor Screenshot](https://via.placeholder.com/800x600?text=Network+Monitor+Screenshot)
 
