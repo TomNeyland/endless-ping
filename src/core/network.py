@@ -17,7 +17,7 @@ from utils.ip_lookup import resolve_hostname
 from core.statistics import calculate_statistics
 from concurrent.futures import ThreadPoolExecutor
 
-class NetworkMonitor:
+class EndlessPingMonitor:
     """Manages network monitoring operations and data collection"""
     
     def __init__(self):

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Ultimate Python Network Monitoring Tool
+Ultimate Endless Ping Network Monitoring Tool
 A PingPlotter-style desktop application to monitor and visualize network latency.
 """
 
@@ -29,7 +29,7 @@ def main():
     app = QApplication(sys.argv)
     
     # Set application-wide properties
-    app.setApplicationName("Python Network Monitor")
+    app.setApplicationName("Endless Ping")
     app.setOrganizationName("NetworkTools")
     
     # Apply dark style

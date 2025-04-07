@@ -98,7 +98,7 @@ To build manually:
 poetry add --group dev pyinstaller
 
 # Build the executable
-poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
 ```
 
 ## Permissions

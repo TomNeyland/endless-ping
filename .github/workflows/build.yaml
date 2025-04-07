@@ -23,14 +23,14 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: windows-latest
-            output_name: NetworkMonitor.exe
-            asset_name: NetworkMonitor-Windows.exe
+            output_name: EndlessPing.exe
+            asset_name: EndlessPing-Windows.exe
           - os: macos-latest
-            output_name: NetworkMonitor
-            asset_name: NetworkMonitor-macOS
+            output_name: EndlessPing
+            asset_name: EndlessPing-macOS
           - os: ubuntu-latest
-            output_name: NetworkMonitor
-            asset_name: NetworkMonitor-Linux
+            output_name: EndlessPing
+            asset_name: EndlessPing-Linux
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
@@ -74,15 +74,15 @@ jobs:
       shell: bash
     - name: Build with PyInstaller (Windows)
       if: matrix.os == 'windows-latest'
-      run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      run: poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
       shell: bash
     - name: Build with PyInstaller (macOS)
       if: matrix.os == 'macos-latest'
-      run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      run: poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
       shell: bash
     - name: Build with PyInstaller (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      run: poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
       shell: bash
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -115,17 +115,17 @@ jobs:
     - name: Download Windows artifact
       uses: actions/download-artifact@v4
       with:
-        name: NetworkMonitor-Windows.exe
+        name: EndlessPing-Windows.exe
         path: dist
     - name: Download macOS artifact
       uses: actions/download-artifact@v4
       with:
-        name: NetworkMonitor-macOS
+        name: EndlessPing-macOS
         path: dist
     - name: Download Linux artifact
       uses: actions/download-artifact@v4
       with:
-        name: NetworkMonitor-Linux
+        name: EndlessPing-Linux
         path: dist
     
     # Create new tag
@@ -169,8 +169,8 @@ jobs:
       with:
         tag_name: ${{ steps.create_tag.outputs.new_tag }}
         files: |
-          dist/NetworkMonitor.exe
-          dist/NetworkMonitor
+          dist/EndlessPing.exe
+          dist/EndlessPing
         draft: false
         prerelease: false
         generate_release_notes: true

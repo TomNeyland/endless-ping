@@ -20,7 +20,7 @@ from ui.timeseries_graph import TimeSeriesGraph
 from ui.time_window_controls import TimeWindowControls
 from ui.hop_selector import HopSelector
 from ui.timeseries_tooltip import TimeSeriesToolTip
-from core.network import NetworkMonitor
+from core.network import EndlessPingMonitor
 
 # Configure logger for this module
 logger = logging.getLogger('endless_ping.main_window')
@@ -32,14 +32,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         
         # Setup window properties
-        self.setWindowTitle("Python Network Monitor")
+        self.setWindowTitle("Endless Ping")
         self.resize(900, 700)
         
         # Initialize settings
         self.settings = QSettings()
         
         # Create the network monitor
-        self.network_monitor = NetworkMonitor()
+        self.network_monitor = EndlessPingMonitor()
         
         # Setup UI
         self.setup_ui()
