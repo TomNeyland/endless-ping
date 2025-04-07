@@ -30,7 +30,8 @@ class EndlessPingMonitor:
         # Data structures to store monitoring results
         self.current_hops = []  # Current hop data
         self.history = {}  # Historical data by hop
-        self.history_max_points = 1000  # Maximum number of points to keep (about 10 minutes at 1s)
+        # Increase max_points to store 24 hours of data at 1-second intervals (86400 seconds per day)
+        self.history_max_points = 86400  # Store up to 24 hours of data at 1s intervals
         
         # Queue for async operations
         self.data_queue = queue.Queue()

@@ -30,7 +30,7 @@ class TimeSeriesGraph(pg.PlotWidget):
         super().__init__()
         
         # Maximum number of points to store (increased for longer time periods)
-        self.max_points = 3600  # Store up to 1 hour at 1s intervals
+        self.max_points = 86400  # Store up to 24 hours at 1s intervals
         
         # Data storage - time and latency values
         self.timestamps = deque(maxlen=self.max_points)
