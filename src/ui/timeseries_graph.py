@@ -9,17 +9,20 @@ import pyqtgraph as pg
 import numpy as np
 from collections import deque
 from datetime import datetime
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPen
 
 class TimeSeriesGraph(pg.PlotWidget):
     """Graph showing latency over time for all hops"""
     
+    # Signal to notify when time limits have changed
+    time_range_changed = pyqtSignal(float, float)
+    
     def __init__(self):
         super().__init__()
         
-        # Maximum number of points to display (about 10 minutes at 1s intervals)
-        self.max_points = 600
+        # Maximum number of points to store (increased for longer time periods)
+        self.max_points = 3600  # Store up to 1 hour at 1s intervals
         
         # Data storage - time and latency values
         self.timestamps = deque(maxlen=self.max_points)
@@ -30,6 +33,10 @@ class TimeSeriesGraph(pg.PlotWidget):
         
         # Reference time (first data point)
         self.reference_time = None
+        
+        # Time window settings
+        self.visible_window = 60  # Default: show last 60 seconds
+        self.auto_scroll = True   # Default: auto-scroll to follow new data
         
         # Set up the plot
         self.setup_plot()
@@ -68,7 +75,24 @@ class TimeSeriesGraph(pg.PlotWidget):
         
         # Set initial axis range
         self.plotItem.setYRange(0, 150)
-        self.plotItem.setXRange(0, 60)  # Show last 60 seconds by default
+        self.plotItem.setXRange(0, self.visible_window)  # Show the initial window
+        
+        # Connect signals for view changes
+        self.plotItem.sigXRangeChanged.connect(self.on_view_changed)
+        
+    def on_view_changed(self):
+        """Handle manual view changes by the user"""
+        # If the user manually changes the view, we may want to disable auto-scroll
+        if self.timestamps:
+            x_range = self.plotItem.viewRange()[0]
+            x_max = max(self.timestamps)
+            
+            # Check if the view has significantly moved away from the latest data
+            if x_range[1] < x_max - 5:  # More than 5 seconds behind latest data
+                self.auto_scroll = False
+            
+            # Emit signal with current time range
+            self.time_range_changed.emit(x_range[0], x_range[1])
         
     def apply_styles(self):
         """Apply custom styles to the time series graph"""
@@ -241,15 +265,54 @@ class TimeSeriesGraph(pg.PlotWidget):
         if max_latency > current_y_range[1] * 0.9 or max_latency < current_y_range[1] * 0.5:
             self.plotItem.setYRange(0, max_latency)
         
-        # Auto-scroll X axis if viewing the most recent data
-        x_range = self.plotItem.viewRange()[0]
-        x_max = max(self.timestamps) if self.timestamps else 0
-        
-        # Check if we're viewing the latest data (within 10% of the end)
-        if x_range[1] > x_max - (x_range[1] - x_range[0]) * 0.1:
-            # Auto-scroll to keep showing the latest data
-            x_min = max(0, x_max - (x_range[1] - x_range[0]))
+        # Handle X-axis scrolling based on settings
+        if self.auto_scroll and self.timestamps:
+            x_max = max(self.timestamps)
+            x_min = max(0, x_max - self.visible_window)
             self.plotItem.setXRange(x_min, x_max)
+            
+    def set_visible_window(self, seconds):
+        """
+        Set the visible time window in seconds
+        
+        Args:
+            seconds: Number of seconds to display
+        """
+        self.visible_window = seconds
+        
+        # Update the view immediately if auto-scrolling is enabled
+        if self.auto_scroll and self.timestamps:
+            x_max = max(self.timestamps)
+            x_min = max(0, x_max - self.visible_window)
+            self.plotItem.setXRange(x_min, x_max)
+    
+    def set_auto_scroll(self, enabled):
+        """
+        Enable or disable auto-scrolling
+        
+        Args:
+            enabled: Boolean to enable/disable auto-scrolling
+        """
+        self.auto_scroll = enabled
+        
+        # If enabling auto-scroll, immediately scroll to latest data
+        if enabled and self.timestamps:
+            x_max = max(self.timestamps)
+            x_min = max(0, x_max - self.visible_window)
+            self.plotItem.setXRange(x_min, x_max)
+    
+    def goto_latest(self):
+        """Scroll to show the latest data"""
+        if self.timestamps:
+            x_max = max(self.timestamps)
+            x_min = max(0, x_max - self.visible_window)
+            self.plotItem.setXRange(x_min, x_max)
+            self.auto_scroll = True
+    
+    def goto_time_range(self, x_min, x_max):
+        """Set the visible time range explicitly"""
+        self.auto_scroll = False
+        self.plotItem.setXRange(x_min, x_max)
             
     def clear_data(self):
         """Clear all data and reset the plot"""

@@ -6,7 +6,8 @@ Main window for the network monitoring application.
 """
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QSplitter, QSizePolicy
+    QMainWindow, QWidget, QVBoxLayout, QSplitter, QSizePolicy,
+    QHBoxLayout
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer
 
@@ -14,6 +15,7 @@ from ui.controls import ControlPanel
 from ui.data_grid import HopDataGrid
 from ui.latency_graph import LatencyBarGraph
 from ui.timeseries_graph import TimeSeriesGraph
+from ui.time_window_controls import TimeWindowControls
 from core.network import NetworkMonitor
 
 class MainWindow(QMainWindow):
@@ -83,9 +85,27 @@ class MainWindow(QMainWindow):
         middle_layout.addWidget(hop_splitter)
         content_splitter.addWidget(middle_widget)
         
-        # Add time series graph at the bottom
+        # Create bottom area with time series graph and controls
+        bottom_widget = QWidget()
+        bottom_layout = QVBoxLayout(bottom_widget)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(0)
+        
+        # Add time window controls
+        self.time_window_controls = TimeWindowControls()
+        bottom_layout.addWidget(self.time_window_controls)
+        
+        # Add time series graph
         self.time_series_graph = TimeSeriesGraph()
-        content_splitter.addWidget(self.time_series_graph)
+        bottom_layout.addWidget(self.time_series_graph)
+        
+        # Connect time window controls signals
+        self.time_window_controls.window_changed.connect(self.time_series_graph.set_visible_window)
+        self.time_window_controls.auto_scroll_changed.connect(self.time_series_graph.set_auto_scroll)
+        self.time_window_controls.goto_latest_clicked.connect(self.time_series_graph.goto_latest)
+        self.time_series_graph.time_range_changed.connect(self.update_time_range_display)
+        
+        content_splitter.addWidget(bottom_widget)
         
         # Set splitter sizes (60% for middle area, 40% for time series graph)
         content_splitter.setSizes([400, 300])
@@ -151,6 +171,16 @@ class MainWindow(QMainWindow):
         self.control_panel.set_interval(interval)
         self.set_update_interval(interval)
         
+        # Load time window settings
+        default_window = 60  # Default to 1 minute
+        time_window = self.settings.value("time_window", default_window, type=int)
+        self.time_window_controls.set_window(time_window)
+        self.time_series_graph.set_visible_window(time_window)
+        
+        auto_scroll = self.settings.value("auto_scroll", True, type=bool)
+        self.time_window_controls.set_auto_scroll(auto_scroll)
+        self.time_series_graph.set_auto_scroll(auto_scroll)
+        
         # Load last target
         last_target = self.settings.value("last_target", "")
         if last_target:
@@ -163,8 +193,37 @@ class MainWindow(QMainWindow):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("interval", self.update_timer.interval())
         self.settings.setValue("last_target", self.control_panel.get_current_target())
+        self.settings.setValue("time_window", self.time_window_controls.get_current_window())
+        self.settings.setValue("auto_scroll", self.time_window_controls.auto_scroll_check.isChecked())
         
     def closeEvent(self, event):
         """Handle window close event"""
         self.save_settings()
         event.accept()
+        
+    def update_time_range_display(self, x_min, x_max):
+        """
+        Update UI when the time range changes (due to user interaction)
+        
+        Args:
+            x_min: Minimum X value (start time in seconds)
+            x_max: Maximum X value (end time in seconds)
+        """
+        # Update auto-scroll status in the time window controls
+        # If the range is showing the latest data, auto-scroll is likely enabled
+        if self.time_series_graph.timestamps:
+            latest_time = max(self.time_series_graph.timestamps)
+            if abs(x_max - latest_time) < 5:  # Within 5 seconds of the latest data
+                self.time_window_controls.set_auto_scroll(True)
+            else:
+                self.time_window_controls.set_auto_scroll(False)
+                
+        # Try to match the window size in the dropdown if it's close to a preset value
+        window_size = x_max - x_min
+        for i in range(self.time_window_controls.window_selector.count()):
+            preset_size = self.time_window_controls.window_selector.itemData(i)
+            if abs(window_size - preset_size) < preset_size * 0.1:  # Within 10% of a preset
+                self.time_window_controls.window_selector.blockSignals(True)
+                self.time_window_controls.window_selector.setCurrentIndex(i)
+                self.time_window_controls.window_selector.blockSignals(False)
+                break
