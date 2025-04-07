@@ -7,7 +7,7 @@ on:
       - master
 
 permissions:
-  contents: write  # Needed to create tags and releases
+  contents: write
 
 jobs:
   build-release:
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Needed for tag history
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -45,14 +45,24 @@ jobs:
           virtualenvs-create: true
           virtualenvs-in-project: true
 
+      - name: Check Poetry installation on Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          poetry --version
+          echo "Poetry path: $(where poetry || which poetry)"
+        shell: pwsh
+
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
+        shell: bash
 
       - name: Install project
         run: poetry install --no-interaction
+        shell: bash
 
       - name: Install PyInstaller
         run: poetry add --group dev "pyinstaller>=6.12.0,<7.0.0" --python ">=3.11,<3.14"
+        shell: bash
 
       - name: Create version file
         run: |
@@ -60,9 +70,11 @@ jobs:
           echo "build_type = 'release'" >> src/version.py
           echo "build_date = '$(date)'" >> src/version.py
           echo "build_commit = '${{ github.sha }}'" >> src/version.py
+        shell: bash
 
       - name: Build with PyInstaller
         run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+        shell: bash
 
       - name: Upload built artifact
         uses: actions/upload-artifact@v4
@@ -84,7 +96,6 @@ jobs:
         run: |
           git fetch --tags
           LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1 || echo "v0.0.0")
-          echo "Latest tag: $LATEST_TAG"
 
           if [[ $LATEST_TAG =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             MAJOR="${BASH_REMATCH[1]}"
