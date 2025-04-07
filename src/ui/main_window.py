@@ -7,15 +7,18 @@ Main window for the network monitoring application.
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QSplitter, QSizePolicy,
-    QHBoxLayout
+    QHBoxLayout, QFrame
 )
-from PyQt6.QtCore import Qt, QSettings, QTimer
+from PyQt6.QtCore import Qt, QSettings, QTimer, QEvent, QPoint
+from PyQt6.QtGui import QCursor
 
 from ui.controls import ControlPanel
 from ui.data_grid import HopDataGrid
 from ui.latency_graph import LatencyBarGraph
 from ui.timeseries_graph import TimeSeriesGraph
 from ui.time_window_controls import TimeWindowControls
+from ui.hop_selector import HopSelector
+from ui.timeseries_tooltip import TimeSeriesToolTip
 from core.network import NetworkMonitor
 
 class MainWindow(QMainWindow):
@@ -40,6 +43,12 @@ class MainWindow(QMainWindow):
         # Create timer for updates
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_data)
+        
+        # Create tooltip for time series graph
+        self.time_series_tooltip = TimeSeriesToolTip()
+        
+        # Reference to highlighted hop
+        self.highlighted_hop = None
         
         # Load last session or initialize
         self.load_settings()
@@ -85,7 +94,7 @@ class MainWindow(QMainWindow):
         middle_layout.addWidget(hop_splitter)
         content_splitter.addWidget(middle_widget)
         
-        # Create bottom area with time series graph and controls
+        # Create bottom area for time series visualization
         bottom_widget = QWidget()
         bottom_layout = QVBoxLayout(bottom_widget)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
@@ -95,9 +104,22 @@ class MainWindow(QMainWindow):
         self.time_window_controls = TimeWindowControls()
         bottom_layout.addWidget(self.time_window_controls)
         
+        # Create a horizontal splitter for time series graph and hop selector
+        ts_splitter = QSplitter(Qt.Orientation.Horizontal)
+        ts_splitter.setChildrenCollapsible(False)
+        
         # Add time series graph
         self.time_series_graph = TimeSeriesGraph()
-        bottom_layout.addWidget(self.time_series_graph)
+        ts_splitter.addWidget(self.time_series_graph)
+        
+        # Add hop selector panel
+        self.hop_selector = HopSelector()
+        ts_splitter.addWidget(self.hop_selector)
+        
+        # Set splitter sizes (85% for graph, 15% for hop selector)
+        ts_splitter.setSizes([750, 150])
+        
+        bottom_layout.addWidget(ts_splitter, 1)
         
         # Connect time window controls signals
         self.time_window_controls.window_changed.connect(self.time_series_graph.set_visible_window)
@@ -105,10 +127,18 @@ class MainWindow(QMainWindow):
         self.time_window_controls.goto_latest_clicked.connect(self.time_series_graph.goto_latest)
         self.time_series_graph.time_range_changed.connect(self.update_time_range_display)
         
+        # Connect hop selector signals
+        self.hop_selector.hop_visibility_changed.connect(self.time_series_graph.toggle_hop_visibility)
+        self.hop_selector.highlight_hop_changed.connect(self.highlight_hop)
+        
+        # Connect hover signals from time series graph
+        self.time_series_graph.hover_data_changed.connect(self.update_tooltip)
+        
+        # Add bottom widget to content splitter
         content_splitter.addWidget(bottom_widget)
         
-        # Set splitter sizes (60% for middle area, 40% for time series graph)
-        content_splitter.setSizes([400, 300])
+        # Set splitter sizes (40% for middle area, 60% for time series graph)
+        content_splitter.setSizes([300, 400])
         
         # Connect network monitor signals
         self.control_panel.interval_changed.connect(self.set_update_interval)
@@ -118,6 +148,9 @@ class MainWindow(QMainWindow):
         
         # Connect save/load signals
         self.control_panel.save_clicked.connect(self.save_session)
+        
+        # Connect hop data grid row selection to highlight function
+        self.hop_data_grid.row_selected.connect(self.highlight_hop)
         
     def set_update_interval(self, interval_ms):
         """Set the update interval for network monitoring"""
@@ -152,6 +185,7 @@ class MainWindow(QMainWindow):
             self.hop_data_grid.update_data(data)
             self.latency_bar_graph.update_data(data)
             self.time_series_graph.add_data_point(data)
+            self.hop_selector.update_hops(data)
     
     def save_session(self):
         """Save the current session data"""
@@ -186,7 +220,8 @@ class MainWindow(QMainWindow):
         if last_target:
             self.control_panel.set_target(last_target)
             
-        # TODO: Load last session data
+        # Load visible hops settings
+        # (Will be implemented when we have them)
             
     def save_settings(self):
         """Save application settings"""
@@ -195,6 +230,9 @@ class MainWindow(QMainWindow):
         self.settings.setValue("last_target", self.control_panel.get_current_target())
         self.settings.setValue("time_window", self.time_window_controls.get_current_window())
         self.settings.setValue("auto_scroll", self.time_window_controls.auto_scroll_check.isChecked())
+        
+        # Save visible hops settings
+        # (Will be implemented when we have them)
         
     def closeEvent(self, event):
         """Handle window close event"""
@@ -227,3 +265,29 @@ class MainWindow(QMainWindow):
                 self.time_window_controls.window_selector.setCurrentIndex(i)
                 self.time_window_controls.window_selector.blockSignals(False)
                 break
+                
+    def update_tooltip(self, timestamp, hop_values):
+        """Update the tooltip for time series graph hover
+        
+        Args:
+            timestamp: The timestamp for the data point
+            hop_values: List of (hop_num, latency) tuples
+        """
+        if hop_values:
+            # Get mouse position and update tooltip
+            cursor_pos = QCursor.pos()
+            self.time_series_tooltip.update_tooltip(timestamp, hop_values)
+            self.time_series_tooltip.move_to_position(cursor_pos.x(), cursor_pos.y())
+        else:
+            self.time_series_tooltip.hide()
+            
+    def highlight_hop(self, hop_num):
+        """Highlight a specific hop in the UI
+        
+        Args:
+            hop_num: The hop number to highlight
+        """
+        self.highlighted_hop = hop_num
+        
+        # Could implement hop highlighting in the time series graph
+        # This would make the selected hop's line more prominent and others more faded

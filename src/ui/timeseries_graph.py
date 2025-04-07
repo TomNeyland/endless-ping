@@ -17,6 +17,8 @@ class TimeSeriesGraph(pg.PlotWidget):
     
     # Signal to notify when time limits have changed
     time_range_changed = pyqtSignal(float, float)
+    # Signal emitted when hovering over the graph
+    hover_data_changed = pyqtSignal(float, list)
     
     def __init__(self):
         super().__init__()
@@ -30,6 +32,7 @@ class TimeSeriesGraph(pg.PlotWidget):
         self.hop_data = {}   # Dict of {hop_num: deque of latency values}
         self.hop_errors = {} # Dict of {hop_num: deque of error_type values}
         self.error_bands = []  # List of error band items
+        self.visible_hops = set()  # Set of hop numbers that are currently visible
         
         # Reference time (first data point)
         self.reference_time = None
@@ -48,6 +51,14 @@ class TimeSeriesGraph(pg.PlotWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh_plot)
         self.timer.start(500)  # Refresh twice per second
+        
+        # Set up hover line
+        self.hover_line = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='#888888', width=1, style=Qt.PenStyle.DashLine))
+        self.hover_line.setVisible(False)
+        self.plotItem.addItem(self.hover_line)
+        
+        # Connect mouse events for hover tooltip
+        self.scene().sigMouseMoved.connect(self.on_mouse_moved)
         
     def setup_plot(self):
         """Configure the plot appearance and behavior"""
@@ -79,6 +90,41 @@ class TimeSeriesGraph(pg.PlotWidget):
         
         # Connect signals for view changes
         self.plotItem.sigXRangeChanged.connect(self.on_view_changed)
+        
+    def on_mouse_moved(self, pos):
+        """Handle mouse movement for hover tooltip"""
+        if not self.timestamps or len(self.timestamps) <= 1:
+            return
+            
+        # Get mouse position in plot coordinates
+        mouse_point = self.plotItem.vb.mapSceneToView(pos)
+        x = mouse_point.x()
+        
+        # Check if x is within the data range
+        if min(self.timestamps) <= x <= max(self.timestamps):
+            # Show the hover line
+            self.hover_line.setPos(x)
+            self.hover_line.setVisible(True)
+            
+            # Find the closest timestamp
+            closest_idx = min(range(len(self.timestamps)), 
+                             key=lambda i: abs(self.timestamps[i] - x))
+            closest_time = self.timestamps[closest_idx]
+            
+            # Collect data for all hops at this time point
+            hop_values = []
+            for hop_num, latency_data in sorted(self.hop_data.items()):
+                if len(latency_data) > closest_idx:
+                    value = latency_data[closest_idx]
+                    if not np.isnan(value):
+                        hop_values.append((hop_num, value))
+            
+            # Emit signal with hover data
+            self.hover_data_changed.emit(closest_time, hop_values)
+        else:
+            # Hide the hover line when outside data range
+            self.hover_line.setVisible(False)
+            self.hover_data_changed.emit(0, [])
         
     def on_view_changed(self):
         """Handle manual view changes by the user"""
@@ -160,18 +206,18 @@ class TimeSeriesGraph(pg.PlotWidget):
         if not self.timestamps:
             return
             
-        # Create color palette for hops
+        # Create softer color palette for hops (using more muted/pastel colors)
         colors = [
-            '#ff6060',  # Red
-            '#60ff60',  # Green
-            '#6060ff',  # Blue
-            '#ffcc44',  # Yellow
-            '#ff60ff',  # Magenta
-            '#60ffff',  # Cyan
-            '#ff8040',  # Orange
-            '#40ff80',  # Light green
-            '#8040ff',  # Purple
-            '#ff4080',  # Pink
+            '#d9534f',  # Soft red
+            '#5cb85c',  # Soft green
+            '#5bc0de',  # Soft blue
+            '#f0ad4e',  # Soft amber
+            '#a87dc9',  # Soft purple
+            '#20c997',  # Soft teal
+            '#fd7e14',  # Soft orange
+            '#6c757d',  # Soft gray
+            '#e83e8c',  # Soft pink
+            '#17a2b8',  # Soft cyan
         ]
         
         # Clean up old error bands (remove all existing bands)
@@ -179,8 +225,18 @@ class TimeSeriesGraph(pg.PlotWidget):
             self.plotItem.removeItem(band)
         self.error_bands = []
         
+        # Update the visible_hops set if it's empty (initialize with all hops)
+        if not self.visible_hops and self.hop_data:
+            self.visible_hops = set(self.hop_data.keys())
+        
         # Update each hop line
         for i, (hop_num, latency_data) in enumerate(sorted(self.hop_data.items())):
+            # Skip if this hop is hidden
+            if hop_num not in self.visible_hops:
+                if hop_num in self.hop_lines:
+                    self.hop_lines[hop_num].setVisible(False)
+                continue
+                
             # Convert data to numpy arrays
             x = np.array(self.timestamps)
             y = np.array(latency_data)
@@ -191,12 +247,13 @@ class TimeSeriesGraph(pg.PlotWidget):
             
             # Create or update line
             if hop_num not in self.hop_lines:
-                # Create new line
-                pen = pg.mkPen(color=color, width=2)
+                # Create new line (using thinner line width of 1.5 instead of 2)
+                pen = pg.mkPen(color=color, width=1.5)
                 line = self.plotItem.plot(x, y, pen=pen, name=f"Hop {hop_num}")
                 self.hop_lines[hop_num] = line
             else:
-                # Update existing line
+                # Update existing line and ensure it's visible
+                self.hop_lines[hop_num].setVisible(True)
                 self.hop_lines[hop_num].setData(x, y)
                 
             # Draw error bands for this hop
@@ -253,12 +310,14 @@ class TimeSeriesGraph(pg.PlotWidget):
         
         # Auto-scale Y axis if needed
         max_latency = 150  # Default
-        for latency_data in self.hop_data.values():
-            # Filter out NaN values
-            filtered_data = [x for x in latency_data if not np.isnan(x)]
-            if filtered_data:
-                current_max = max(filtered_data)
-                max_latency = max(max_latency, current_max * 1.1)
+        for hop_num, latency_data in self.hop_data.items():
+            # Only consider visible hops for y-axis scaling
+            if hop_num in self.visible_hops:
+                # Filter out NaN values
+                filtered_data = [x for x in latency_data if not np.isnan(x)]
+                if filtered_data:
+                    current_max = max(filtered_data)
+                    max_latency = max(max_latency, current_max * 1.1)
         
         # Adjust Y range if significantly different
         current_y_range = self.plotItem.viewRange()[1]
@@ -270,7 +329,7 @@ class TimeSeriesGraph(pg.PlotWidget):
             x_max = max(self.timestamps)
             x_min = max(0, x_max - self.visible_window)
             self.plotItem.setXRange(x_min, x_max)
-            
+    
     def set_visible_window(self, seconds):
         """
         Set the visible time window in seconds
@@ -325,3 +384,19 @@ class TimeSeriesGraph(pg.PlotWidget):
         
         self.hop_lines.clear()
         self.reference_time = None
+        
+    def toggle_hop_visibility(self, hop_num, visible):
+        """Toggle visibility of a specific hop line
+        
+        Args:
+            hop_num: The hop number to toggle
+            visible: Boolean indicating whether the hop should be visible
+        """
+        if visible and hop_num not in self.visible_hops:
+            self.visible_hops.add(hop_num)
+        elif not visible and hop_num in self.visible_hops:
+            self.visible_hops.remove(hop_num)
+            
+        # Update the plot immediately
+        if hop_num in self.hop_lines:
+            self.hop_lines[hop_num].setVisible(visible)
