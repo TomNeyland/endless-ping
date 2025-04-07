@@ -228,9 +228,11 @@ class TimeSeriesGraph(pg.PlotWidget):
             self.plotItem.removeItem(band)
         self.error_bands = []
         
-        # Update the visible_hops set if it's empty (initialize with all hops)
-        if not self.visible_hops and self.hop_data:
+        # Initialize visible_hops set if it's empty AND user hasn't explicitly cleared it
+        # Only initialize with all hops if there are no existing or previous visibility settings
+        if not self.visible_hops and self.hop_data and not hasattr(self, '_visibility_initialized'):
             self.visible_hops = set(self.hop_data.keys())
+            self._visibility_initialized = True
         
         # Get the final hop if in final hop only mode
         final_hop = self.get_final_hop() if self.final_hop_only_mode else None
