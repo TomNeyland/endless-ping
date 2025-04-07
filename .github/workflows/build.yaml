@@ -1,22 +1,26 @@
-name: Build, Tag & Release on Push to Main/Master
-
+name: Build Application
 on:
   push:
     branches:
-      - main
       - master
+      - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write  # This gives write permission to repository contents (including tags)
 
 jobs:
-  build-release:
-    name: Build & Release on ${{ matrix.os }}
+  build:
+    name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    outputs:
+      artifact_path_windows: ${{ steps.artifact_path.outputs.windows_path }}
+      artifact_path_macos: ${{ steps.artifact_path.outputs.macos_path }}
+      artifact_path_linux: ${{ steps.artifact_path.outputs.linux_path }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: windows-latest
             output_name: NetworkMonitor.exe
@@ -27,115 +31,148 @@ jobs:
           - os: ubuntu-latest
             output_name: NetworkMonitor
             asset_name: NetworkMonitor-Linux
-
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1.4.1
-        with:
-          version: 1.5.1
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Check Poetry installation on Windows
-        if: matrix.os == 'windows-latest'
-        run: |
-          poetry --version
-          echo "Poetry path: $(where poetry || which poetry)"
-        shell: pwsh
-
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root
-        shell: bash
-
-      - name: Install project
-        run: poetry install --no-interaction
-        shell: bash
-
-      - name: Install PyInstaller
-        run: poetry add --group dev "pyinstaller>=6.12.0,<7.0.0" --python ">=3.11,<3.14"
-        shell: bash
-
-      - name: Create version file
-        run: |
-          echo "version = 'pending'" > src/version.py
-          echo "build_type = 'release'" >> src/version.py
-          echo "build_date = '$(date)'" >> src/version.py
-          echo "build_commit = '${{ github.sha }}'" >> src/version.py
-        shell: bash
-
-      - name: Build with PyInstaller
-        run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
-        shell: bash
-
-      - name: Upload built artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.output_name }}
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - name: Install Poetry
+      uses: snok/install-poetry@v1.4.1
+      with:
+        version: 1.5.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+    - name: Check Poetry installation
+      run: |
+        poetry --version
+        echo "Poetry installation path: $(where poetry || which poetry)"
+      shell: bash
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root
+      shell: bash
+    - name: Install project
+      run: poetry install --no-interaction
+      shell: bash
+    - name: Install PyInstaller
+      run: poetry add --group dev "pyinstaller>=6.12.0,<7.0.0" --python ">=3.11,<3.14"
+      shell: bash
+    - name: Create temporary version file
+      run: |
+        SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+        echo "version = 'dev-$SHORT_SHA'" > src/version.py
+        echo "build_type = 'development'" >> src/version.py
+        echo "build_date = '$(date)'" >> src/version.py
+        echo "build_commit = '${{ github.sha }}'" >> src/version.py
+      shell: bash
+    - name: Build with PyInstaller (Windows)
+      if: matrix.os == 'windows-latest'
+      run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      shell: bash
+    - name: Build with PyInstaller (macOS)
+      if: matrix.os == 'macos-latest'
+      run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      shell: bash
+    - name: Build with PyInstaller (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: poetry run pyinstaller --name=NetworkMonitor --onefile --windowed src/main.py
+      shell: bash
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.asset_name }}
+        path: dist/${{ matrix.output_name }}
+        retention-days: 1
+    - name: Set artifact paths
+      id: artifact_path
+      run: |
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          echo "windows_path=dist/${{ matrix.output_name }}" >> $GITHUB_OUTPUT
+        elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          echo "macos_path=dist/${{ matrix.output_name }}" >> $GITHUB_OUTPUT
+        elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+          echo "linux_path=dist/${{ matrix.output_name }}" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
 
   tag-and-release:
-    name: Tag and Create Release
+    name: Create Tag and Release
+    needs: build
     runs-on: ubuntu-latest
-    needs: build-release
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Determine next tag
-        id: tagger
-        run: |
-          git fetch --tags
-          LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1 || echo "v0.0.0")
-
-          if [[ $LATEST_TAG =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            MAJOR="${BASH_REMATCH[1]}"
-            MINOR="${BASH_REMATCH[2]}"
-            PATCH="${BASH_REMATCH[3]}"
-            NEW_PATCH=$((PATCH + 1))
-            NEW_TAG="v$MAJOR.$MINOR.$NEW_PATCH"
-          else
-            NEW_TAG="v0.0.1"
-          fi
-
-          echo "New tag: $NEW_TAG"
-          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
-
-      - name: Create and push tag
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git tag ${{ steps.tagger.outputs.tag }}
-          git push origin ${{ steps.tagger.outputs.tag }}
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-
-      - name: Rename artifacts for release
-        run: |
-          mkdir release
-          for dir in dist/*/; do
-            file=$(ls "$dir")
-            mv "$dir/$file" "release/$file"
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.tagger.outputs.tag }}
-          name: Release ${{ steps.tagger.outputs.tag }}
-          files: release/*
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Need full history for tags
+    
+    # Download all artifacts
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: NetworkMonitor-Windows.exe
+        path: dist
+    - name: Download macOS artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: NetworkMonitor-macOS
+        path: dist
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: NetworkMonitor-Linux
+        path: dist
+    
+    # Create new tag
+    - name: Create new tag
+      id: create_tag
+      run: |
+        # Get the latest tag, defaulting to v0.0.0 if none exists
+        git fetch --tags
+        LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1 || echo "v0.0.0")
+        echo "Latest tag: $LATEST_TAG"
+        
+        # Parse the version components
+        if [[ $LATEST_TAG =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          
+          # Increment patch version
+          NEW_PATCH=$((PATCH + 1))
+          NEW_TAG="v$MAJOR.$MINOR.$NEW_PATCH"
+        else
+          # If tag doesn't match expected format, start with v0.0.1
+          NEW_TAG="v0.0.1"
+        fi
+        
+        echo "New tag: $NEW_TAG"
+        echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+        
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Create and push tag
+        git tag $NEW_TAG
+        git push origin $NEW_TAG
+      shell: bash
+      
+    # Create release
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.create_tag.outputs.new_tag }}
+        files: |
+          dist/NetworkMonitor.exe
+          dist/NetworkMonitor
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
