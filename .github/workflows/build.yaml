@@ -23,13 +23,13 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: windows-latest
-            output_name: EndlessPing.exe
+            output_name: EndlessPing-Windows.exe
             asset_name: EndlessPing-Windows.exe
           - os: macos-latest
-            output_name: EndlessPing
+            output_name: EndlessPing-macOS
             asset_name: EndlessPing-macOS
           - os: ubuntu-latest
-            output_name: EndlessPing
+            output_name: EndlessPing-Linux
             asset_name: EndlessPing-Linux
     steps:
     - uses: actions/checkout@v4
@@ -74,21 +74,21 @@ jobs:
       shell: bash
     - name: Build with PyInstaller (Windows)
       if: matrix.os == 'windows-latest'
-      run: poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
+      run: poetry run pyinstaller --name=EndlessPing-Windows --onefile --windowed src/main.py
       shell: bash
     - name: Build with PyInstaller (macOS)
       if: matrix.os == 'macos-latest'
-      run: poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
+      run: poetry run pyinstaller --name=EndlessPing-macOS --onefile --windowed src/main.py
       shell: bash
     - name: Build with PyInstaller (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: poetry run pyinstaller --name=EndlessPing --onefile --windowed src/main.py
+      run: poetry run pyinstaller --name=EndlessPing-Linux --onefile --windowed src/main.py
       shell: bash
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.asset_name }}
-        path: dist/${{ matrix.output_name }}
+        path: dist/${{ matrix.asset_name }}
         retention-days: 1
     - name: Set artifact paths
       id: artifact_path
@@ -169,8 +169,9 @@ jobs:
       with:
         tag_name: ${{ steps.create_tag.outputs.new_tag }}
         files: |
-          dist/EndlessPing.exe
-          dist/EndlessPing
+          dist/EndlessPing-Windows.exe
+          dist/EndlessPing-macOS
+          dist/EndlessPing-Linux
         draft: false
         prerelease: false
         generate_release_notes: true
