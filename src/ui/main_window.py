@@ -130,10 +130,8 @@ class MainWindow(QMainWindow):
         
         # Connect hop selector signals
         self.hop_selector.hop_visibility_changed.connect(self.time_series_graph.toggle_hop_visibility)
+        self.hop_selector.all_hops_visibility_changed.connect(self.time_series_graph.toggle_all_hops_visibility)
         self.hop_selector.highlight_hop_changed.connect(self.highlight_hop)
-        
-        # Connect hover signals from time series graph
-        self.time_series_graph.hover_data_changed.connect(self.update_tooltip)
         
         # Add bottom widget to content splitter
         content_splitter.addWidget(bottom_widget)

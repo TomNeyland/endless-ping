@@ -35,6 +35,7 @@ class HopSelector(QWidget):
     # Signal emitted when hop visibility changes
     hop_visibility_changed = pyqtSignal(int, bool)
     highlight_hop_changed = pyqtSignal(int)  # Emitted when a hop is highlighted
+    all_hops_visibility_changed = pyqtSignal(bool)  # Emitted when "Select All" is toggled
     
     def __init__(self):
         super().__init__()
@@ -107,6 +108,9 @@ class HopSelector(QWidget):
         for checkbox in self.hop_checkboxes.values():
             checkbox.setChecked(checked)
             
+        # Emit signal for toggle all functionality
+        self.all_hops_visibility_changed.emit(checked)
+        
     def on_hop_checkbox_changed(self, hop_num, state):
         """Handle individual hop checkbox state change"""
         checked = state == Qt.CheckState.Checked
