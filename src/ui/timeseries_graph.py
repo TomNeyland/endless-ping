@@ -407,8 +407,8 @@ class TimeSeriesGraph(pg.PlotWidget):
         
         # Only take action if the mode is actually changing
         if self.final_hop_only_mode != enabled:
+            logger.debug(f"Changing final hop only mode from {self.final_hop_only_mode} to {enabled}")
             self.final_hop_only_mode = enabled
-            logger.debug(f"Final hop only mode changed to: {enabled}")
             
             # Store previous visible_hops for restoration when toggling off
             if enabled:
@@ -444,6 +444,8 @@ class TimeSeriesGraph(pg.PlotWidget):
             # Emit signal so other components can update
             logger.debug("Emitting hop_visibility_updated signal")
             self.hop_visibility_updated.emit()
+        else:
+            logger.debug(f"Final hop only mode already set to {enabled}, no action needed")
     
     def get_final_hop(self):
         """Return the number of the final hop (highest hop number)

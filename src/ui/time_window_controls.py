@@ -137,8 +137,15 @@ class TimeWindowControls(QWidget):
         
     def on_final_hop_only_changed(self, state):
         """Handle final hop only checkbox change"""
-        is_checked = state == Qt.CheckState.Checked
-        logger.debug(f"Final Hop Only checkbox changed to: {is_checked}")
+        # Convert Qt.CheckState to boolean
+        is_checked = (state == Qt.CheckState.Checked)
+        
+        # Verify actual widget state to ensure consistency 
+        actual_state = self.final_hop_only_check.isChecked()
+        logger.debug(f"Final Hop Only checkbox changed: signal state={is_checked}, actual widget state={actual_state}")
+        
+        # Use the widget's actual state to ensure accuracy
+        is_checked = actual_state
         
         # Emit signal to notify other components
         logger.debug(f"Emitting final_hop_only_changed({is_checked})")
