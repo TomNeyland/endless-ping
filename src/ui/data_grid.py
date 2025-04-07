@@ -8,11 +8,14 @@ Data grid for displaying hop information in the network monitor.
 from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 
 class HopDataGrid(QTableWidget):
     """Grid for displaying hop-by-hop network monitoring data"""
+    
+    # Signal emitted when a row is selected, passing the hop number
+    row_selected = pyqtSignal(int)
     
     def __init__(self):
         super().__init__()
@@ -29,6 +32,9 @@ class HopDataGrid(QTableWidget):
         # Set other visual properties
         self.verticalHeader().setVisible(False)
         self.setSortingEnabled(False)
+        
+        # Connect the selection changed signal
+        self.itemSelectionChanged.connect(self.on_selection_changed)
         
         self.apply_styles()
         
@@ -176,3 +182,21 @@ class HopDataGrid(QTableWidget):
             }
             """
         )
+    
+    def on_selection_changed(self):
+        """Handle selection changes in the table"""
+        selected_rows = self.selectionModel().selectedRows()
+        
+        if selected_rows:
+            # Get the hop number from the first column of the selected row
+            row_index = selected_rows[0].row()
+            hop_item = self.item(row_index, 0)
+            
+            if hop_item:
+                # Convert the hop text to an integer and emit the signal
+                try:
+                    hop_number = int(hop_item.text())
+                    self.row_selected.emit(hop_number)
+                except ValueError:
+                    # If the hop number isn't a valid integer, ignore it
+                    pass

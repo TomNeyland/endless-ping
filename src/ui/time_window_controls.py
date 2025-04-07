@@ -18,6 +18,7 @@ class TimeWindowControls(QWidget):
     window_changed = pyqtSignal(int)  # Emitted when the window size changes (in seconds)
     auto_scroll_changed = pyqtSignal(bool)  # Emitted when auto-scroll is toggled
     goto_latest_clicked = pyqtSignal()  # Emitted when "Latest" button is clicked
+    final_hop_only_changed = pyqtSignal(bool)  # Emitted when the final hop only mode is toggled
     
     def __init__(self):
         super().__init__()
@@ -58,6 +59,19 @@ class TimeWindowControls(QWidget):
         self.latest_button = QPushButton("Latest")
         self.latest_button.clicked.connect(self.on_latest_clicked)
         layout.addWidget(self.latest_button)
+        
+        # Add another separator
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(separator2)
+        
+        # "Final Hop Only" toggle checkbox
+        self.final_hop_only_check = QCheckBox("Final Hop Only")
+        self.final_hop_only_check.setChecked(False)
+        self.final_hop_only_check.stateChanged.connect(self.on_final_hop_only_changed)
+        self.final_hop_only_check.setToolTip("Show only the final hop line but retain all failure indicators")
+        layout.addWidget(self.final_hop_only_check)
         
         # Add stretch to push everything to the left
         layout.addStretch()
@@ -113,6 +127,18 @@ class TimeWindowControls(QWidget):
     def set_auto_scroll(self, enabled):
         """Set the auto-scroll checkbox state"""
         self.auto_scroll_check.setChecked(enabled)
+        
+    def on_final_hop_only_changed(self, state):
+        """Handle final hop only checkbox change"""
+        self.final_hop_only_changed.emit(state == Qt.CheckState.Checked)
+        
+    def get_final_hop_only(self):
+        """Get the final hop only state"""
+        return self.final_hop_only_check.isChecked()
+        
+    def set_final_hop_only(self, enabled):
+        """Set the final hop only checkbox state"""
+        self.final_hop_only_check.setChecked(enabled)
         
     def apply_styles(self):
         """Apply custom styles to the control panel"""

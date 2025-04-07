@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self.time_window_controls.window_changed.connect(self.time_series_graph.set_visible_window)
         self.time_window_controls.auto_scroll_changed.connect(self.time_series_graph.set_auto_scroll)
         self.time_window_controls.goto_latest_clicked.connect(self.time_series_graph.goto_latest)
+        self.time_window_controls.final_hop_only_changed.connect(self.time_series_graph.set_final_hop_only_mode)
         self.time_series_graph.time_range_changed.connect(self.update_time_range_display)
         
         # Connect hop selector signals

@@ -34,6 +34,9 @@ class TimeSeriesGraph(pg.PlotWidget):
         self.error_bands = []  # List of error band items
         self.visible_hops = set()  # Set of hop numbers that are currently visible
         
+        # Mode settings
+        self.final_hop_only_mode = False  # Only show the final hop line
+        
         # Reference time (first data point)
         self.reference_time = None
         
@@ -229,12 +232,21 @@ class TimeSeriesGraph(pg.PlotWidget):
         if not self.visible_hops and self.hop_data:
             self.visible_hops = set(self.hop_data.keys())
         
+        # Get the final hop if in final hop only mode
+        final_hop = self.get_final_hop() if self.final_hop_only_mode else None
+        
         # Update each hop line
         for i, (hop_num, latency_data) in enumerate(sorted(self.hop_data.items())):
-            # Skip if this hop is hidden
-            if hop_num not in self.visible_hops:
+            # Skip if this hop is hidden or if in final hop only mode and not the final hop
+            if hop_num not in self.visible_hops or (self.final_hop_only_mode and hop_num != final_hop):
                 if hop_num in self.hop_lines:
                     self.hop_lines[hop_num].setVisible(False)
+                
+                # Even if the hop line is hidden, we still need to process error bands
+                # If in final hop only mode, we still show all error bands
+                if self.final_hop_only_mode:
+                    self.process_error_bands(hop_num)
+                    
                 continue
                 
             # Convert data to numpy arrays
@@ -255,64 +267,15 @@ class TimeSeriesGraph(pg.PlotWidget):
                 # Update existing line and ensure it's visible
                 self.hop_lines[hop_num].setVisible(True)
                 self.hop_lines[hop_num].setData(x, y)
-                
-            # Draw error bands for this hop
-            error_data = list(self.hop_errors[hop_num])
             
-            # Find contiguous regions with 'no_route' errors
-            if 'no_route' in error_data:
-                # Get current view range for y-axis
-                y_min, y_max = self.plotItem.viewRange()[1]
-                
-                # Find blocks of consecutive no_route errors
-                in_error_block = False
-                start_idx = None
-                
-                for i, error in enumerate(error_data):
-                    if error == 'no_route' and not in_error_block:
-                        # Start of error block
-                        start_idx = i
-                        in_error_block = True
-                    elif error != 'no_route' and in_error_block:
-                        # End of error block
-                        end_idx = i
-                        
-                        # Create band for this block
-                        if start_idx < len(x) and start_idx >= 0:
-                            x_start = x[start_idx]
-                            x_end = x[end_idx] if end_idx < len(x) else x[-1] + 1.0
-                            
-                            # Create a very visible band
-                            band = pg.LinearRegionItem(
-                                [x_start, x_end],
-                                movable=False,
-                                brush=pg.mkBrush(255, 0, 0, 100)  # Semi-transparent red
-                            )
-                            band.setZValue(-1)  # Behind data lines but above background
-                            self.plotItem.addItem(band)
-                            self.error_bands.append(band)
-                        
-                        in_error_block = False
-                
-                # Check if we ended in an error state
-                if in_error_block and start_idx is not None and start_idx < len(x):
-                    x_start = x[start_idx]
-                    x_end = x[-1] + 1.0  # Extend to current time
-                    
-                    band = pg.LinearRegionItem(
-                        [x_start, x_end],
-                        movable=False,
-                        brush=pg.mkBrush(255, 0, 0, 100)  # Semi-transparent red
-                    )
-                    band.setZValue(-1)
-                    self.plotItem.addItem(band)
-                    self.error_bands.append(band)
+            # Process error bands for this hop    
+            self.process_error_bands(hop_num)
         
         # Auto-scale Y axis if needed
         max_latency = 150  # Default
         for hop_num, latency_data in self.hop_data.items():
             # Only consider visible hops for y-axis scaling
-            if hop_num in self.visible_hops:
+            if hop_num in self.visible_hops and (not self.final_hop_only_mode or hop_num == final_hop):
                 # Filter out NaN values
                 filtered_data = [x for x in latency_data if not np.isnan(x)]
                 if filtered_data:
@@ -400,3 +363,80 @@ class TimeSeriesGraph(pg.PlotWidget):
         # Update the plot immediately
         if hop_num in self.hop_lines:
             self.hop_lines[hop_num].setVisible(visible)
+    
+    def set_final_hop_only_mode(self, enabled):
+        """Enable or disable final hop only mode
+        
+        Args:
+            enabled: Boolean to enable/disable final hop only mode
+        """
+        self.final_hop_only_mode = enabled
+        # Immediately refresh the plot
+        self.refresh_plot()
+    
+    def get_final_hop(self):
+        """Return the number of the final hop (highest hop number)
+        
+        Returns:
+            The highest hop number or None if no hops
+        """
+        if not self.hop_data:
+            return None
+        return max(self.hop_data.keys())
+    
+    def process_error_bands(self, hop_num):
+        """Process and draw error bands for a specific hop
+        
+        Args:
+            hop_num: The hop number to process
+        """
+        error_data = list(self.hop_errors[hop_num])
+        
+        # Find contiguous regions with 'no_route' errors
+        if 'no_route' in error_data:
+            # Get timestamps for reference
+            x = np.array(self.timestamps)
+            
+            # Find blocks of consecutive no_route errors
+            in_error_block = False
+            start_idx = None
+            
+            for i, error in enumerate(error_data):
+                if error == 'no_route' and not in_error_block:
+                    # Start of error block
+                    start_idx = i
+                    in_error_block = True
+                elif error != 'no_route' and in_error_block:
+                    # End of error block
+                    end_idx = i
+                    
+                    # Create band for this block
+                    if start_idx < len(x) and start_idx >= 0:
+                        x_start = x[start_idx]
+                        x_end = x[end_idx] if end_idx < len(x) else x[-1] + 1.0
+                        
+                        # Create a very visible band
+                        band = pg.LinearRegionItem(
+                            [x_start, x_end],
+                            movable=False,
+                            brush=pg.mkBrush(255, 0, 0, 100)  # Semi-transparent red
+                        )
+                        band.setZValue(-1)  # Behind data lines but above background
+                        self.plotItem.addItem(band)
+                        self.error_bands.append(band)
+                    
+                    in_error_block = False
+            
+            # Check if we ended in an error state
+            if in_error_block and start_idx is not None and start_idx < len(x):
+                x_start = x[start_idx]
+                x_end = x[-1] + 1.0  # Extend to current time
+                
+                band = pg.LinearRegionItem(
+                    [x_start, x_end],
+                    movable=False,
+                    brush=pg.mkBrush(255, 0, 0, 100)  # Semi-transparent red
+                )
+                band.setZValue(-1)
+                self.plotItem.addItem(band)
+                self.error_bands.append(band)
