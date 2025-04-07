@@ -133,6 +133,9 @@ class MainWindow(QMainWindow):
         self.hop_selector.all_hops_visibility_changed.connect(self.time_series_graph.toggle_all_hops_visibility)
         self.hop_selector.highlight_hop_changed.connect(self.highlight_hop)
         
+        # Connect timeseries graph signals to update hop selector UI
+        self.time_series_graph.hop_visibility_updated.connect(self.sync_hop_selector_with_graph)
+        
         # Add bottom widget to content splitter
         content_splitter.addWidget(bottom_widget)
         
@@ -290,3 +293,48 @@ class MainWindow(QMainWindow):
         
         # Could implement hop highlighting in the time series graph
         # This would make the selected hop's line more prominent and others more faded
+
+    def sync_hop_selector_with_graph(self):
+        """Synchronize the hop selector UI with the graph's current visibility state"""
+        if self.time_series_graph.final_hop_only_mode:
+            # If in final hop only mode, update all checkboxes to reflect this
+            final_hop = self.time_series_graph.get_final_hop()
+            if final_hop is not None:
+                # Update all hop checkboxes
+                for hop_num, checkbox in self.hop_selector.hop_checkboxes.items():
+                    # Block signals to prevent recursive updates
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(hop_num == final_hop)
+                    checkbox.setEnabled(False)  # Disable all checkboxes when in final hop only mode
+                    checkbox.blockSignals(False)
+                
+                # Update "Select All" checkbox
+                self.hop_selector.select_all_checkbox.blockSignals(True)
+                self.hop_selector.select_all_checkbox.setCheckState(Qt.CheckState.PartiallyChecked)
+                self.hop_selector.select_all_checkbox.setEnabled(False)
+                self.hop_selector.select_all_checkbox.blockSignals(False)
+        else:
+            # If not in final hop only mode, re-enable all controls
+            for hop_num, checkbox in self.hop_selector.hop_checkboxes.items():
+                checkbox.blockSignals(True)
+                checkbox.setEnabled(True)
+                # Set checked state based on visibility in the graph
+                checkbox.setChecked(hop_num in self.time_series_graph.visible_hops)
+                checkbox.blockSignals(False)
+            
+            # Re-enable and update "Select All" checkbox
+            self.hop_selector.select_all_checkbox.blockSignals(True)
+            self.hop_selector.select_all_checkbox.setEnabled(True)
+            
+            # Determine state of "Select All" checkbox
+            if not self.hop_selector.hop_checkboxes:
+                state = Qt.CheckState.Checked
+            elif all(checkbox.isChecked() for checkbox in self.hop_selector.hop_checkboxes.values()):
+                state = Qt.CheckState.Checked
+            elif any(checkbox.isChecked() for checkbox in self.hop_selector.hop_checkboxes.values()):
+                state = Qt.CheckState.PartiallyChecked
+            else:
+                state = Qt.CheckState.Unchecked
+                
+            self.hop_selector.select_all_checkbox.setCheckState(state)
+            self.hop_selector.select_all_checkbox.blockSignals(False)

@@ -19,6 +19,8 @@ class TimeSeriesGraph(pg.PlotWidget):
     time_range_changed = pyqtSignal(float, float)
     # Signal emitted when hovering over the graph
     hover_data_changed = pyqtSignal(float, list)
+    # Signal to notify when hop visibility has changed
+    hop_visibility_updated = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -372,7 +374,7 @@ class TimeSeriesGraph(pg.PlotWidget):
     
     def set_final_hop_only_mode(self, enabled):
         """Enable or disable final hop only mode
-        
+
         Args:
             enabled: Boolean to enable/disable final hop only mode
         """
@@ -383,9 +385,15 @@ class TimeSeriesGraph(pg.PlotWidget):
             final_hop = self.get_final_hop()
             if final_hop is not None:
                 self.visible_hops = {final_hop}
+                
+                # Emit signal to update UI controls for all hops except final hop
+                self.hop_visibility_updated.emit()
         else:
             # Restore visibility for all hops
             self.visible_hops = set(self.hop_data.keys())
+            
+            # Emit signal to update UI controls
+            self.hop_visibility_updated.emit()
 
         # Immediately refresh the plot
         self.refresh_plot()
