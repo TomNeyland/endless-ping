@@ -5,11 +5,15 @@
 Time window controls for adjusting the visible time range in the time series graph.
 """
 
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QComboBox, QLabel, QPushButton, 
     QCheckBox, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+
+# Configure logger for this module
+logger = logging.getLogger('endless_ping.time_window_controls')
 
 class TimeWindowControls(QWidget):
     """Controls for adjusting the visible time window in time series graphs"""
@@ -26,6 +30,9 @@ class TimeWindowControls(QWidget):
         # Setup UI
         self.setup_ui()
         self.apply_styles()
+        
+        # Reference to the hop selector (will be set by the main window)
+        self.hop_selector = None
     
     def setup_ui(self):
         """Set up the UI components"""
@@ -130,7 +137,12 @@ class TimeWindowControls(QWidget):
         
     def on_final_hop_only_changed(self, state):
         """Handle final hop only checkbox change"""
-        self.final_hop_only_changed.emit(state == Qt.CheckState.Checked)
+        is_checked = state == Qt.CheckState.Checked
+        logger.debug(f"Final Hop Only checkbox changed to: {is_checked}")
+        
+        # Emit signal to notify other components
+        logger.debug(f"Emitting final_hop_only_changed({is_checked})")
+        self.final_hop_only_changed.emit(is_checked)
         
     def get_final_hop_only(self):
         """Get the final hop only state"""

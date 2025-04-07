@@ -5,6 +5,7 @@
 Main window for the network monitoring application.
 """
 
+import logging
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QSplitter, QSizePolicy,
     QHBoxLayout, QFrame
@@ -20,6 +21,9 @@ from ui.time_window_controls import TimeWindowControls
 from ui.hop_selector import HopSelector
 from ui.timeseries_tooltip import TimeSeriesToolTip
 from core.network import NetworkMonitor
+
+# Configure logger for this module
+logger = logging.getLogger('endless_ping.main_window')
 
 class MainWindow(QMainWindow):
     """Main application window that organizes all UI components"""
@@ -121,6 +125,9 @@ class MainWindow(QMainWindow):
         
         bottom_layout.addWidget(ts_splitter, 1)
         
+        # Set reference to hop selector in time window controls
+        self.time_window_controls.hop_selector = self.hop_selector
+        
         # Connect time window controls signals
         self.time_window_controls.window_changed.connect(self.time_series_graph.set_visible_window)
         self.time_window_controls.auto_scroll_changed.connect(self.time_series_graph.set_auto_scroll)
@@ -132,6 +139,9 @@ class MainWindow(QMainWindow):
         self.hop_selector.hop_visibility_changed.connect(self.time_series_graph.toggle_hop_visibility)
         self.hop_selector.all_hops_visibility_changed.connect(self.time_series_graph.toggle_all_hops_visibility)
         self.hop_selector.highlight_hop_changed.connect(self.highlight_hop)
+        
+        # Connect time series graph hover signal to tooltip update
+        self.time_series_graph.hover_data_changed.connect(self.update_tooltip)
         
         # Connect timeseries graph signals to update hop selector UI
         self.time_series_graph.hop_visibility_updated.connect(self.sync_hop_selector_with_graph)
@@ -296,45 +306,31 @@ class MainWindow(QMainWindow):
 
     def sync_hop_selector_with_graph(self):
         """Synchronize the hop selector UI with the graph's current visibility state"""
+        logger.debug("sync_hop_selector_with_graph called")
+        final_hop = self.time_series_graph.get_final_hop()
+        logger.debug(f"Final hop: {final_hop}")
+        logger.debug(f"Graph final_hop_only_mode: {self.time_series_graph.final_hop_only_mode}")
+        logger.debug(f"Graph visible_hops: {self.time_series_graph.visible_hops}")
+        
+        # If the graph is in final hop only mode, update the hop selector accordingly
         if self.time_series_graph.final_hop_only_mode:
-            # If in final hop only mode, update all checkboxes to reflect this
-            final_hop = self.time_series_graph.get_final_hop()
-            if final_hop is not None:
-                # Update all hop checkboxes
-                for hop_num, checkbox in self.hop_selector.hop_checkboxes.items():
-                    # Block signals to prevent recursive updates
-                    checkbox.blockSignals(True)
-                    checkbox.setChecked(hop_num == final_hop)
-                    checkbox.setEnabled(False)  # Disable all checkboxes when in final hop only mode
-                    checkbox.blockSignals(False)
-                
-                # Update "Select All" checkbox
-                self.hop_selector.select_all_checkbox.blockSignals(True)
-                self.hop_selector.select_all_checkbox.setCheckState(Qt.CheckState.PartiallyChecked)
-                self.hop_selector.select_all_checkbox.setEnabled(False)
-                self.hop_selector.select_all_checkbox.blockSignals(False)
+            logger.debug(f"Setting hop selector to final hop only mode: {final_hop}")
+            self.hop_selector.set_final_hop_only_mode(True, final_hop)
+            
+            # Also ensure the checkbox in time window controls is checked
+            logger.debug("Setting time window controls final hop only checkbox to checked")
+            self.time_window_controls.set_final_hop_only(True)
         else:
-            # If not in final hop only mode, re-enable all controls
-            for hop_num, checkbox in self.hop_selector.hop_checkboxes.items():
-                checkbox.blockSignals(True)
-                checkbox.setEnabled(True)
-                # Set checked state based on visibility in the graph
-                checkbox.setChecked(hop_num in self.time_series_graph.visible_hops)
-                checkbox.blockSignals(False)
+            # If not in final hop only mode, restore normal hop visibility
+            logger.debug("Disabling final hop only mode in hop selector")
+            self.hop_selector.set_final_hop_only_mode(False)
             
-            # Re-enable and update "Select All" checkbox
-            self.hop_selector.select_all_checkbox.blockSignals(True)
-            self.hop_selector.select_all_checkbox.setEnabled(True)
+            # Also ensure the checkbox in time window controls is unchecked
+            logger.debug("Setting time window controls final hop only checkbox to unchecked")
+            self.time_window_controls.set_final_hop_only(False)
             
-            # Determine state of "Select All" checkbox
-            if not self.hop_selector.hop_checkboxes:
-                state = Qt.CheckState.Checked
-            elif all(checkbox.isChecked() for checkbox in self.hop_selector.hop_checkboxes.values()):
-                state = Qt.CheckState.Checked
-            elif any(checkbox.isChecked() for checkbox in self.hop_selector.hop_checkboxes.values()):
-                state = Qt.CheckState.PartiallyChecked
-            else:
-                state = Qt.CheckState.Unchecked
-                
-            self.hop_selector.select_all_checkbox.setCheckState(state)
-            self.hop_selector.select_all_checkbox.blockSignals(False)
+            # Update individual hop checkboxes to match graph visibility
+            for hop_num in self.hop_selector.hop_checkboxes:
+                visible = hop_num in self.time_series_graph.visible_hops
+                logger.debug(f"Setting hop {hop_num} visibility to {visible}")
+                self.hop_selector.set_hop_visibility(hop_num, visible)

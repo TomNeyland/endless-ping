@@ -5,12 +5,16 @@
 Hop selector component for controlling which hops are visible in the time series graph.
 """
 
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QCheckBox, QLabel,
     QGroupBox, QFrame, QHBoxLayout
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
+
+# Configure logger for this module
+logger = logging.getLogger('endless_ping.hop_selector')
 
 class ColorIndicator(QFrame):
     """A simple colored square to indicate hop color"""
@@ -44,6 +48,9 @@ class HopSelector(QWidget):
         self.hop_checkboxes = {}
         self.hop_rows = {}
         
+        # Keep track of previous checkbox states (for restoring when "Final Hop Only" is toggled off)
+        self.previous_checkbox_states = {}
+        
         # Configure layout
         self.setup_ui()
         
@@ -60,6 +67,9 @@ class HopSelector(QWidget):
             '#e83e8c',  # Soft pink
             '#17a2b8',  # Soft cyan
         ]
+        
+        # Flag for final hop only mode
+        self.final_hop_only_mode = False
         
     def setup_ui(self):
         """Set up the UI components"""
@@ -99,24 +109,38 @@ class HopSelector(QWidget):
         
         # Add a stretcher to push all content to the top
         group_layout.addStretch(1)
-        
+
     def on_select_all_changed(self, state):
         """Handle 'Select All' checkbox state change"""
-        checked = state == Qt.CheckState.Checked
-        
-        # Update all checkboxes
-        for checkbox in self.hop_checkboxes.values():
-            checkbox.setChecked(checked)
+        # Ignore state changes during final hop only mode
+        if self.final_hop_only_mode:
+            logger.debug("Select All ignored: Final Hop Only mode is active")
+            return
             
+        checked = state == Qt.CheckState.Checked
+        logger.debug(f"Select All changed to: {checked}")
+        
+        # Update all individual checkboxes
+        for hop_num, checkbox in self.hop_checkboxes.items():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(checked)
+            checkbox.blockSignals(False)
+            logger.debug(f"  Setting Hop {hop_num} checked: {checked}")
+        
         # Emit signal for toggle all functionality
+        logger.debug(f"Emitting all_hops_visibility_changed({checked})")
         self.all_hops_visibility_changed.emit(checked)
         
     def on_hop_checkbox_changed(self, hop_num, state):
         """Handle individual hop checkbox state change"""
+        # Ignore state changes during final hop only mode
+        if self.final_hop_only_mode:
+            return
+            
         checked = state == Qt.CheckState.Checked
         self.hop_visibility_changed.emit(hop_num, checked)
         
-        # Update "Select All" checkbox if needed
+        # Update "Select All" checkbox state
         self.update_select_all_state()
         
     def on_hop_row_entered(self, hop_num):
@@ -125,9 +149,19 @@ class HopSelector(QWidget):
         
     def update_select_all_state(self):
         """Update the state of the 'Select All' checkbox based on individual hop checkboxes"""
-        if not self.hop_checkboxes:
+        # Don't update during final hop only mode
+        if self.final_hop_only_mode:
             return
             
+        if not self.hop_checkboxes:
+            # No hops available, set to unchecked
+            self.select_all_checkbox.blockSignals(True)
+            self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
+            self.select_all_checkbox.setEnabled(False)
+            self.select_all_checkbox.blockSignals(False)
+            return
+            
+        # Count checked boxes
         all_checked = all(checkbox.isChecked() for checkbox in self.hop_checkboxes.values())
         any_checked = any(checkbox.isChecked() for checkbox in self.hop_checkboxes.values())
         
@@ -141,7 +175,58 @@ class HopSelector(QWidget):
         else:
             self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
             
+        # Make sure it's enabled if there are hops
+        self.select_all_checkbox.setEnabled(True)
         self.select_all_checkbox.blockSignals(False)
+        
+    def set_final_hop_only_mode(self, enabled, final_hop=None):
+        """Enable or disable final hop only mode
+        
+        Args:
+            enabled: Boolean to enable/disable final hop only mode
+            final_hop: The final hop number or None
+        """
+        # Only make changes if state is changing
+        if self.final_hop_only_mode != enabled:
+            self.final_hop_only_mode = enabled
+            
+            if enabled:
+                # Store current checkbox states for later restoration
+                self.previous_checkbox_states = {
+                    hop_num: checkbox.isChecked() 
+                    for hop_num, checkbox in self.hop_checkboxes.items()
+                }
+                
+                # Set all checkboxes to unchecked and disabled (except final hop)
+                for hop_num, checkbox in self.hop_checkboxes.items():
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(hop_num == final_hop)
+                    checkbox.setEnabled(False)
+                    checkbox.blockSignals(False)
+                
+                # Disable "Select All" checkbox
+                self.select_all_checkbox.blockSignals(True)
+                self.select_all_checkbox.setEnabled(False)
+                self.select_all_checkbox.setCheckState(Qt.CheckState.PartiallyChecked)
+                self.select_all_checkbox.blockSignals(False)
+                
+            else:
+                # Restore previous checkbox states
+                for hop_num, checkbox in self.hop_checkboxes.items():
+                    checkbox.blockSignals(True)
+                    checked = self.previous_checkbox_states.get(hop_num, True)
+                    checkbox.setChecked(checked)
+                    checkbox.setEnabled(True)
+                    checkbox.blockSignals(False)
+                    
+                    # Emit signal for each hop
+                    self.hop_visibility_changed.emit(hop_num, checked)
+                
+                # Re-enable "Select All" checkbox and update its state
+                self.select_all_checkbox.blockSignals(True)
+                self.select_all_checkbox.setEnabled(True)
+                self.select_all_checkbox.blockSignals(False)
+                self.update_select_all_state()
         
     def update_hops(self, hop_data):
         """Update the hop list based on current data
@@ -210,6 +295,11 @@ class HopSelector(QWidget):
         # Update "Select All" checkbox if needed
         self.update_select_all_state()
         
+        # If in final hop only mode, disable the new checkbox
+        if self.final_hop_only_mode:
+            checkbox.setEnabled(False)
+            checkbox.setChecked(False)
+        
     def remove_hop(self, hop_num):
         """Remove a hop from the list
         
@@ -227,6 +317,10 @@ class HopSelector(QWidget):
             del self.hop_checkboxes[hop_num]
             del self.hop_rows[hop_num]
             
+            # Clean up previous state if it exists
+            if hop_num in self.previous_checkbox_states:
+                del self.previous_checkbox_states[hop_num]
+            
             # Update "Select All" checkbox if needed
             self.update_select_all_state()
             
@@ -238,13 +332,15 @@ class HopSelector(QWidget):
             visible: Boolean indicating whether it should be visible
         """
         if hop_num in self.hop_checkboxes:
-            checkbox = self.hop_checkboxes[hop_num]
-            checkbox.blockSignals(True)
-            checkbox.setChecked(visible)
-            checkbox.blockSignals(False)
-            
-            # Update "Select All" checkbox if needed
-            self.update_select_all_state()
+            # Only change if not in final hop only mode
+            if not self.final_hop_only_mode:
+                checkbox = self.hop_checkboxes[hop_num]
+                checkbox.blockSignals(True)
+                checkbox.setChecked(visible)
+                checkbox.blockSignals(False)
+                
+                # Update "Select All" checkbox if needed
+                self.update_select_all_state()
             
     def highlight_hop(self, hop_num):
         """Temporarily highlight a hop in the list

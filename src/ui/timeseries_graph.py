@@ -5,12 +5,16 @@
 Time series graph for visualizing latency over time.
 """
 
+import logging
 import pyqtgraph as pg
 import numpy as np
 from collections import deque
 from datetime import datetime
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPen
+
+# Configure logger for this module
+logger = logging.getLogger('endless_ping.timeseries_graph')
 
 class TimeSeriesGraph(pg.PlotWidget):
     """Graph showing latency over time for all hops"""
@@ -86,8 +90,22 @@ class TimeSeriesGraph(pg.PlotWidget):
         threshold_line = pg.InfiniteLine(pos=100, angle=0, pen=pg.mkPen('r', width=1, style=pg.QtCore.Qt.PenStyle.DotLine))
         self.plotItem.addItem(threshold_line)
         
-        # Add legend
-        self.legend = self.plotItem.addLegend()
+        # Add legend but disable the clickable checkbox for visibility
+        # This prevents users from toggling visibility via the legend
+        self.legend = self.plotItem.addLegend(clickable=False)
+        
+        # Connect to legend item clicks to intercept visibility toggles
+        # This is a workaround since we can't fully disable the legend clicks in pyqtgraph
+        def legend_clicked(ev):
+            # Prevent default action and force our own visibility management
+            logger.debug("Legend item clicked - intercepting and blocking default action")
+            ev.ignore()  # Prevent default behavior
+            self.hop_visibility_updated.emit()  # Force re-sync
+            return True
+            
+        # Apply the interceptor to the legend if it has the required attribute
+        if hasattr(self.legend, 'scene'):
+            self.legend.scene().sigMouseClicked.connect(legend_clicked)
         
         # Set initial axis range
         self.plotItem.setYRange(0, 150)
@@ -359,18 +377,25 @@ class TimeSeriesGraph(pg.PlotWidget):
             hop_num: The hop number to toggle
             visible: Boolean indicating whether the hop should be visible
         """
+        # Ignore visibility changes when in final hop only mode
         if self.final_hop_only_mode:
-            # Ignore visibility changes when in final hop only mode
+            logger.debug(f"toggle_hop_visibility({hop_num}, {visible}) ignored: Final Hop Only mode is active")
             return
-
+            
+        # Update visibility set
         if visible and hop_num not in self.visible_hops:
+            logger.debug(f"Adding hop {hop_num} to visible_hops")
             self.visible_hops.add(hop_num)
         elif not visible and hop_num in self.visible_hops:
+            logger.debug(f"Removing hop {hop_num} from visible_hops")
             self.visible_hops.remove(hop_num)
-
-        # Update the plot immediately
+        
+        # Update the plot line visibility
         if hop_num in self.hop_lines:
+            logger.debug(f"Setting hop_line {hop_num} visible: {visible}")
             self.hop_lines[hop_num].setVisible(visible)
+            
+        # No need to emit signal since this is a response to UI interaction
     
     def set_final_hop_only_mode(self, enabled):
         """Enable or disable final hop only mode
@@ -378,25 +403,47 @@ class TimeSeriesGraph(pg.PlotWidget):
         Args:
             enabled: Boolean to enable/disable final hop only mode
         """
-        self.final_hop_only_mode = enabled
-
-        if enabled:
-            # Ensure only the final hop is visible
-            final_hop = self.get_final_hop()
-            if final_hop is not None:
-                self.visible_hops = {final_hop}
-                
-                # Emit signal to update UI controls for all hops except final hop
-                self.hop_visibility_updated.emit()
-        else:
-            # Restore visibility for all hops
-            self.visible_hops = set(self.hop_data.keys())
+        logger.debug(f"set_final_hop_only_mode({enabled}) called. Current mode: {self.final_hop_only_mode}")
+        
+        # Only take action if the mode is actually changing
+        if self.final_hop_only_mode != enabled:
+            self.final_hop_only_mode = enabled
+            logger.debug(f"Final hop only mode changed to: {enabled}")
             
-            # Emit signal to update UI controls
+            # Store previous visible_hops for restoration when toggling off
+            if enabled:
+                # Store current visibility state
+                self._previous_visible_hops = self.visible_hops.copy()
+                logger.debug(f"Stored previous visible hops: {self._previous_visible_hops}")
+                
+                # Get final hop
+                final_hop = self.get_final_hop()
+                logger.debug(f"Final hop determined to be: {final_hop}")
+                
+                # Update visibility to show only final hop (if it exists)
+                if final_hop is not None:
+                    self.visible_hops = {final_hop}
+                    logger.debug(f"Setting visible_hops to only include final hop: {self.visible_hops}")
+                else:
+                    self.visible_hops = set()
+                    logger.debug("No final hop found, clearing visible_hops")
+            else:
+                # Restore previous visibility when toggling off
+                if hasattr(self, '_previous_visible_hops'):
+                    self.visible_hops = self._previous_visible_hops.copy()
+                    logger.debug(f"Restored previous visible hops: {self.visible_hops}")
+                else:
+                    # Default to all hops visible if no previous state
+                    self.visible_hops = set(self.hop_data.keys())
+                    logger.debug(f"No previous state found, showing all hops: {self.visible_hops}")
+            
+            # Refresh the plot with new visibility settings
+            logger.debug("Refreshing plot with updated visibility settings")
+            self.refresh_plot()
+            
+            # Emit signal so other components can update
+            logger.debug("Emitting hop_visibility_updated signal")
             self.hop_visibility_updated.emit()
-
-        # Immediately refresh the plot
-        self.refresh_plot()
     
     def get_final_hop(self):
         """Return the number of the final hop (highest hop number)
@@ -467,19 +514,22 @@ class TimeSeriesGraph(pg.PlotWidget):
     
     def toggle_all_hops_visibility(self, visible):
         """Toggle visibility for all hops
-
+        
         Args:
             visible: Boolean indicating whether all hops should be visible
         """
+        # Ignore visibility changes when in final hop only mode
         if self.final_hop_only_mode:
-            # Ignore visibility changes when in final hop only mode
             return
-
+        
+        # Update the visibility set
         if visible:
             self.visible_hops = set(self.hop_data.keys())
         else:
             self.visible_hops.clear()
-
-        # Update the plot immediately
+        
+        # Update all plot lines
         for hop_num, line in self.hop_lines.items():
-            line.setVisible(visible)
+            line.setVisible(visible and hop_num in self.visible_hops)
+            
+        # No need to emit signal since this is a response to UI interaction
