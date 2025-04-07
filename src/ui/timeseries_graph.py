@@ -355,11 +355,15 @@ class TimeSeriesGraph(pg.PlotWidget):
             hop_num: The hop number to toggle
             visible: Boolean indicating whether the hop should be visible
         """
+        if self.final_hop_only_mode:
+            # Ignore visibility changes when in final hop only mode
+            return
+
         if visible and hop_num not in self.visible_hops:
             self.visible_hops.add(hop_num)
         elif not visible and hop_num in self.visible_hops:
             self.visible_hops.remove(hop_num)
-            
+
         # Update the plot immediately
         if hop_num in self.hop_lines:
             self.hop_lines[hop_num].setVisible(visible)
@@ -371,6 +375,16 @@ class TimeSeriesGraph(pg.PlotWidget):
             enabled: Boolean to enable/disable final hop only mode
         """
         self.final_hop_only_mode = enabled
+
+        if enabled:
+            # Ensure only the final hop is visible
+            final_hop = self.get_final_hop()
+            if final_hop is not None:
+                self.visible_hops = {final_hop}
+        else:
+            # Restore visibility for all hops
+            self.visible_hops = set(self.hop_data.keys())
+
         # Immediately refresh the plot
         self.refresh_plot()
     
@@ -440,3 +454,22 @@ class TimeSeriesGraph(pg.PlotWidget):
                 band.setZValue(-1)
                 self.plotItem.addItem(band)
                 self.error_bands.append(band)
+    
+    def toggle_all_hops_visibility(self, visible):
+        """Toggle visibility for all hops
+
+        Args:
+            visible: Boolean indicating whether all hops should be visible
+        """
+        if self.final_hop_only_mode:
+            # Ignore visibility changes when in final hop only mode
+            return
+
+        if visible:
+            self.visible_hops = set(self.hop_data.keys())
+        else:
+            self.visible_hops.clear()
+
+        # Update the plot immediately
+        for hop_num, line in self.hop_lines.items():
+            line.setVisible(visible)
